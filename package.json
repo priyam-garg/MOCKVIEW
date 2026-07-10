@@ -1,0 +1,45 @@
+{
+  "name": "mockview-ai",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^3.0.64",
+    "@ai-sdk/react": "^3.0.169",
+    "@auth/prisma-adapter": "^2.11.2",
+    "@prisma/client": "^6.19.2",
+    "ai": "^6.0.167",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.3.1",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^0.577.0",
+    "next": "16.1.6",
+    "next-auth": "^4.24.14",
+    "pdf2json": "^4.0.3",
+    "prisma": "^6.19.2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
