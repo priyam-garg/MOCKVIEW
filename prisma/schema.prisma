@@ -119,6 +119,10 @@ model ResumeAnalysis {
   fileUrl     String?
   targetRole  String    @default("")
   atsScore    Int // 0-100
+
+  // Extracted PDF text, kept so an interview can be personalized from a
+  // previously analyzed resume without making the user upload it again.
+  resumeText String? @db.Text
   keywordData Json // Array of { keyword, count, relevance, found }
   sectionScores Json // Array of { label, score, icon }
   improvements  Json // Array of { severity, title, description }
@@ -132,11 +136,15 @@ model ResumeAnalysis {
 }
 
 model Goal {
-  id      String @id @default(cuid())
-  userId  String
-  label   String
-  target  Int
-  current Int    @default(0)
+  id     String @id @default(cuid())
+  userId String
+  label  String
+  target Int
+
+  // Which live statistic this goal tracks. Progress is derived from the user's
+  // real data on read, so goals stay accurate without a background job.
+  // "interviews" | "avgScore" | "streak" | "resumeScore"
+  metric String @default("interviews")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
