@@ -2,6 +2,47 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { resolveGoal } from '@/lib/goals';
+
+// Maps a weak skill onto a concrete interview setup, so "practice this" lands
+// the user on a pre-filled session rather than an empty form.
+interface PracticePlan {
+    type: string;
+    difficulty: string;
+    topic: string;
+}
+
+const PRACTICE_PLANS: Record<string, PracticePlan> = {
+    communication: {
+        type: 'behavioral',
+        difficulty: 'medium',
+        topic: 'Explaining complex work clearly and structuring answers with STAR',
+    },
+    technical: {
+        type: 'technical',
+        difficulty: 'hard',
+        topic: 'Core technical fundamentals with precise, specific answers',
+    },
+    problemSolving: {
+        type: 'system-design',
+        difficulty: 'medium',
+        topic: 'Breaking down ambiguous problems and reasoning through trade-offs',
+    },
+    confidence: {
+        type: 'behavioral',
+        difficulty: 'easy',
+        topic: 'Speaking with conviction about your accomplishments and impact',
+    },
+};
+
+function buildInterviewLink(plan: PracticePlan): string {
+    const params = new URLSearchParams({
+        type: plan.type,
+        difficulty: plan.difficulty,
+        topic: plan.topic,
+    });
+    return `/interview?${params.toString()}`;
+}
 
 // GET /api/dashboard — Aggregated dashboard data
 export async function GET() {
@@ -130,12 +171,15 @@ export async function GET() {
             if (weaknesses.length > 0) {
                 const [weakestSkill] = weaknesses[0];
                 const formattedSkill = weakestSkill.charAt(0).toUpperCase() + weakestSkill.slice(1).replace(/([A-Z])/g, ' $1');
+                const plan = PRACTICE_PLANS[weakestSkill] ?? PRACTICE_PLANS.communication;
 
                 insights.push({
                     title: `Improve ${formattedSkill}`,
                     subtitle: `Your average is lower here. Let's do a targeted mock interview.`,
                     action: "Practice Topic",
-                    link: "/interview"
+                    // Deep link so the setup screen opens pre-configured for the
+                    // weak skill instead of dropping the user on a blank form.
+                    link: buildInterviewLink(plan),
                 });
             }
         }
@@ -146,7 +190,11 @@ export async function GET() {
                 title: "System Design Practice",
                 subtitle: "Deepen your architectural knowledge.",
                 action: "Practice Now",
-                link: "/interview"
+                link: buildInterviewLink({
+                    type: 'system-design',
+                    difficulty: 'medium',
+                    topic: 'Scalable system architecture and trade-offs',
+                }),
             });
         }
 
@@ -161,12 +209,14 @@ export async function GET() {
             weeklyScores,
             scoreBreakdown,
             insights: insights.slice(0, 2), // Keep exactly 2 insights
-            goals: goals.map((g) => ({
-                label: g.label,
-                target: g.target,
-                current: g.current,
-                progress: Math.round((g.current / g.target) * 100),
-            })),
+            goals: goals.map((g) =>
+                resolveGoal(g, {
+                    totalInterviews,
+                    avgScore,
+                    currentStreak: streak?.currentStreak || 0,
+                    resumeScore: latestResume?.atsScore || 0,
+                })
+            ),
             streak: streak
                 ? {
                     current: streak.currentStreak,

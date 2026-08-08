@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSpeech } from '@/hooks/useSpeech';
+import { useCamera } from '@/hooks/useCamera';
 import {
     Mic,
     MicOff,
@@ -24,6 +26,7 @@ import {
     Upload,
     FileText,
     X,
+    Send,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -48,18 +51,47 @@ const FILLER_WORDS = ['um', 'uh', 'like', 'you know', 'basically', 'actually', '
 
 // Hardcoded static references removed, driven by useChat state.
 
+// useSearchParams requires a Suspense boundary during prerendering.
 export default function InterviewPage() {
+    return (
+        <Suspense fallback={null}>
+            <InterviewSession />
+        </Suspense>
+    );
+}
+
+function InterviewSession() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
     const [isActive, setIsActive] = useState(false);
+    const [saveError, setSaveError] = useState('');
     const [isPaused, setIsPaused] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
-    const [isVideoOn, setIsVideoOn] = useState(true);
-    const [selectedType, setSelectedType] = useState('behavioral');
-    const [selectedDifficulty, setSelectedDifficulty] = useState('medium');
-    const [customTopic, setCustomTopic] = useState('');
+    const {
+        isVideoOn,
+        videoRef,
+        error: cameraError,
+        isRequesting: isCameraStarting,
+        isSupported: isCameraSupported,
+        stop: stopCamera,
+        toggle: toggleCamera,
+    } = useCamera();
+    // Prefilled from the dashboard's "practice this weak skill" deep link.
+    // Unknown values fall back to the defaults rather than breaking the form.
+    const [selectedType, setSelectedType] = useState(() => {
+        const type = searchParams.get('type');
+        return interviewTypes.some((t) => t.id === type) ? (type as string) : 'behavioral';
+    });
+    const [selectedDifficulty, setSelectedDifficulty] = useState(() => {
+        const difficulty = searchParams.get('difficulty');
+        return difficultyLevels.some((d) => d.id === difficulty) ? (difficulty as string) : 'medium';
+    });
+    const [customTopic, setCustomTopic] = useState(() => searchParams.get('topic')?.slice(0, 200) ?? '');
     const [timer, setTimer] = useState(0);
     const [showCoach, setShowCoach] = useState(true);
     const [waveformData, setWaveformData] = useState<number[]>(Array.from({ length: 50 }, () => 0.1));
     const [currentAnswer, setCurrentAnswer] = useState('');
+    const [typedAnswer, setTypedAnswer] = useState('');
 
     // Live coach state
     const [coachWpm, setCoachWpm] = useState(0);
@@ -80,6 +112,15 @@ export default function InterviewPage() {
     const [isParsingResume, setIsParsingResume] = useState(false);
     const [resumeError, setResumeError] = useState('');
     const resumeTextRef = useRef('');
+
+    // A previously analyzed resume the user can reuse instead of re-uploading.
+    const [savedResume, setSavedResume] = useState<{
+        fileName: string;
+        targetRole: string;
+        atsScore: number;
+        resumeText: string;
+    } | null>(null);
+    const [usingSavedResume, setUsingSavedResume] = useState(false);
 
     // ── Refs that mirror state so callbacks always read the latest values ──
     const currentAnswerRef = useRef(currentAnswer);
@@ -148,6 +189,8 @@ export default function InterviewPage() {
     const {
         isRecording,
         isSpeaking,
+        isSupported: isSpeechSupported,
+        micDenied,
         startRecording,
         stopRecording,
         speakText,
@@ -214,6 +257,50 @@ export default function InterviewPage() {
 
     // Keep isSpeakingRef in sync
     useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
+
+    // Offer the most recently analyzed resume so the user doesn't have to
+    // upload the same PDF they already ran through the resume analyzer.
+    useEffect(() => {
+        let cancelled = false;
+        fetch('/api/resume/latest')
+            .then((res) => (res.ok ? res.json() : { resume: null }))
+            .then((data) => {
+                if (!cancelled && data?.resume?.resumeText) {
+                    setSavedResume(data.resume);
+                }
+            })
+            .catch((err) => console.error('Failed to load saved resume:', err));
+        return () => { cancelled = true; };
+    }, []);
+
+    const useSavedResume = () => {
+        if (!savedResume) return;
+        setResumeText(savedResume.resumeText);
+        resumeTextRef.current = savedResume.resumeText;
+        setUsingSavedResume(true);
+        setResumeFile(null);
+        setResumeError('');
+    };
+
+    const clearResume = () => {
+        setResumeFile(null);
+        setResumeText('');
+        setResumeError('');
+        setUsingSavedResume(false);
+        resumeTextRef.current = '';
+    };
+
+    // Submits a typed answer — the fallback path for browsers without speech
+    // recognition, and an escape hatch when dictation mishears something.
+    const submitTypedAnswer = () => {
+        const answer = typedAnswer.trim();
+        if (!answer || isLoading) return;
+        append({ role: 'user', content: answer });
+        setTypedAnswer('');
+        // Clear any partial dictation so the answer isn't sent twice.
+        setCurrentAnswer('');
+        currentAnswerRef.current = '';
+    };
 
     // Auto-start recording functionality
     useEffect(() => {
@@ -334,7 +421,31 @@ export default function InterviewPage() {
                             <h3 className={styles.selectorLabel}>Upload Resume <span className={styles.optionalTag}>(Optional)</span></h3>
                             <p className={styles.resumeHint}>Upload your resume for personalized questions based on your experience</p>
 
-                            {!resumeFile ? (
+                            {/* Reuse the resume already analyzed on the Resume page */}
+                            {savedResume && !resumeFile && !usingSavedResume && (
+                                <button className={styles.savedResumeCard} onClick={useSavedResume}>
+                                    <FileText size={18} className={styles.fileIcon} />
+                                    <div className={styles.savedResumeInfo}>
+                                        <span className={styles.fileName}>{savedResume.fileName}</span>
+                                        <span className={styles.savedResumeMeta}>
+                                            Already analyzed · ATS {savedResume.atsScore}
+                                            {savedResume.targetRole ? ` · ${savedResume.targetRole}` : ''}
+                                        </span>
+                                    </div>
+                                    <span className={styles.savedResumeAction}>Use this</span>
+                                </button>
+                            )}
+
+                            {usingSavedResume && savedResume ? (
+                                <div className={styles.uploadedFile}>
+                                    <FileText size={18} className={styles.fileIcon} />
+                                    <span className={styles.fileName}>{savedResume.fileName}</span>
+                                    <Badge variant="emerald" dot>Ready</Badge>
+                                    <button className={styles.removeFileBtn} onClick={clearResume}>
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ) : !resumeFile ? (
                                 <label className={styles.uploadZone}>
                                     <input
                                         type="file"
@@ -383,15 +494,7 @@ export default function InterviewPage() {
                                     ) : resumeText ? (
                                         <Badge variant="emerald" dot>Ready</Badge>
                                     ) : null}
-                                    <button
-                                        className={styles.removeFileBtn}
-                                        onClick={() => {
-                                            setResumeFile(null);
-                                            setResumeText('');
-                                            setResumeError('');
-                                            resumeTextRef.current = '';
-                                        }}
-                                    >
+                                    <button className={styles.removeFileBtn} onClick={clearResume}>
                                         <X size={14} />
                                     </button>
                                 </div>
@@ -464,6 +567,35 @@ export default function InterviewPage() {
                             )}
                         </div>
 
+                        {/* Voice input is Web Speech only — warn before the user
+                            starts an interview they can't actually speak in. */}
+                        {isSpeechSupported === false && (
+                            <div className={styles.browserWarning}>
+                                <AlertCircle size={16} />
+                                <div>
+                                    <strong>Voice input isn&apos;t available in this browser.</strong>
+                                    <p>
+                                        Speech recognition is only supported in Chrome, Edge, and other
+                                        Chromium browsers. You can still run the interview and type your
+                                        answers below the transcript.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        {micDenied && (
+                            <div className={styles.browserWarning}>
+                                <AlertCircle size={16} />
+                                <div>
+                                    <strong>Microphone access is blocked.</strong>
+                                    <p>
+                                        Allow microphone access in your browser&apos;s site settings, then
+                                        reload this page to use voice answers.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         <Button
                             size="lg"
                             fullWidth
@@ -524,6 +656,50 @@ export default function InterviewPage() {
                             </p>
                         </Card>
                     </motion.div>
+
+                    {/* Self-view camera — opt-in, practise reading your own body language */}
+                    <Card className={styles.selfViewCard}>
+                        <div className={styles.selfViewHeader}>
+                            <Video size={16} color="var(--accent-cyan)" />
+                            <span>Self View</span>
+                            {isVideoOn && <Badge variant="emerald" size="sm" dot>On</Badge>}
+                        </div>
+
+                        <div className={styles.selfViewFrame}>
+                            {isVideoOn ? (
+                                <video
+                                    ref={videoRef}
+                                    className={styles.selfViewVideo}
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                />
+                            ) : (
+                                <div className={styles.selfViewPlaceholder}>
+                                    <VideoOff size={28} />
+                                    <span>
+                                        {isCameraStarting
+                                            ? 'Starting camera...'
+                                            : !isCameraSupported
+                                                ? 'Camera not supported in this browser'
+                                                : 'Camera is off'}
+                                    </span>
+                                    {isCameraSupported && !isCameraStarting && (
+                                        <button className={styles.selfViewEnableBtn} onClick={toggleCamera}>
+                                            Turn on camera
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {cameraError && (
+                            <div className={styles.selfViewError}>
+                                <AlertCircle size={13} />
+                                <span>{cameraError}</span>
+                            </div>
+                        )}
+                    </Card>
 
                     {/* Voice Waveform */}
                     <Card className={styles.waveformCard}>
@@ -589,7 +765,48 @@ export default function InterviewPage() {
                                 </div>
                             )}
                         </div>
+
+                        {/* Typed answers: the only input path when speech
+                            recognition is unavailable, optional otherwise. */}
+                        <div className={styles.answerComposer}>
+                            <input
+                                className={styles.answerInput}
+                                placeholder={
+                                    isSpeechSupported === false
+                                        ? 'Type your answer and press Enter'
+                                        : 'Or type your answer...'
+                                }
+                                value={typedAnswer}
+                                onChange={(e) => setTypedAnswer(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        submitTypedAnswer();
+                                    }
+                                }}
+                                disabled={isLoading}
+                                aria-label="Type your answer"
+                            />
+                            <button
+                                className={styles.answerSendBtn}
+                                onClick={submitTypedAnswer}
+                                disabled={isLoading || !typedAnswer.trim()}
+                                aria-label="Send answer"
+                            >
+                                <Send size={16} />
+                            </button>
+                        </div>
                     </Card>
+
+                    {saveError && (
+                        <div className={styles.browserWarning}>
+                            <AlertCircle size={16} />
+                            <div>
+                                <strong>Interview not saved</strong>
+                                <p>{saveError}</p>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Controls */}
                     <div className={styles.controls}>
@@ -601,7 +818,16 @@ export default function InterviewPage() {
                         </button>
                         <button
                             className={`${styles.controlBtn} ${!isVideoOn ? styles.muted : ''}`}
-                            onClick={() => setIsVideoOn(!isVideoOn)}
+                            onClick={toggleCamera}
+                            disabled={!isCameraSupported || isCameraStarting}
+                            title={
+                                !isCameraSupported
+                                    ? 'Camera is not supported in this browser'
+                                    : isVideoOn
+                                        ? 'Turn camera off'
+                                        : 'Turn camera on'
+                            }
+                            aria-label={isVideoOn ? 'Turn camera off' : 'Turn camera on'}
                         >
                             {isVideoOn ? <Video size={20} /> : <VideoOff size={20} />}
                         </button>
@@ -616,11 +842,13 @@ export default function InterviewPage() {
                             disabled={isLoading}
                             onClick={async () => {
                                 setIsLoading(true);
+                                setSaveError('');
                                 try {
                                     // Stop recording and speech immediately
                                     setIsActive(false);
                                     stopSpeaking();
                                     stopRecording();
+                                    stopCamera();
 
                                     const currentMessages = messagesRef.current;
 
@@ -665,18 +893,22 @@ export default function InterviewPage() {
                                     });
 
                                     if (!res.ok) {
-                                        const errorData = await res.text();
-                                        alert("Failed to save the interview: " + errorData);
+                                        // Keep the session on screen so the transcript
+                                        // isn't lost, and let the user retry hanging up.
+                                        console.error('Failed to save interview:', await res.text());
+                                        setSaveError('We couldn\'t save this interview. Check your connection and try ending it again.');
+                                        setIsActive(true);
                                         setIsLoading(false);
                                         return;
                                     }
 
                                     // Redirect to the detailed results page with STAR builder
                                     const savedInterview = await res.json();
-                                    window.location.href = `/history/${savedInterview.id}`;
+                                    router.push(`/history/${savedInterview.id}`);
                                 } catch (err) {
                                     console.error('Failed to save interview', err);
-                                    setTimer(0);
+                                    setSaveError('We couldn\'t save this interview. Check your connection and try ending it again.');
+                                    setIsActive(true);
                                     setIsLoading(false);
                                 }
                             }}
