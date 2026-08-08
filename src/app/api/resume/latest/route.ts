@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { db, isDatabaseUnreachable } from '@/lib/db';
 
 // GET /api/resume/latest — the user's most recent analyzed resume, so the
 // interview setup can reuse it instead of asking for the same PDF again.
@@ -34,6 +34,12 @@ export async function GET() {
 
         return NextResponse.json({ resume: latest });
     } catch (error) {
+        if (isDatabaseUnreachable(error)) {
+            return NextResponse.json(
+                { error: "We can't reach the server right now. Please try again in a moment." },
+                { status: 503 }
+            );
+        }
         console.error('GET /api/resume/latest error:', error);
         return NextResponse.json({ error: 'Failed to fetch resume' }, { status: 500 });
     }

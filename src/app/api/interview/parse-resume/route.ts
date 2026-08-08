@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { extractPdfText } from '@/lib/parsePdf';
 
 const MAX_RESUME_CHARS = 10000;
 
@@ -24,17 +25,7 @@ export async function POST(req: NextRequest) {
 
         let resumeText: string;
         try {
-            const PDFParser = (await import('pdf2json')).default;
-            resumeText = await new Promise((resolve, reject) => {
-                const pdfParser = new PDFParser(null, true);
-
-                pdfParser.on('pdfParser_dataError', (errData: any) => reject(errData.parserError));
-                pdfParser.on('pdfParser_dataReady', () => {
-                    resolve(pdfParser.getRawTextContent());
-                });
-
-                pdfParser.parseBuffer(buffer);
-            });
+            resumeText = await extractPdfText(buffer);
         } catch (parseErr) {
             console.error('PDF parse error:', parseErr);
             return NextResponse.json(

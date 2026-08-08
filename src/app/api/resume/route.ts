@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { db, isDatabaseUnreachable } from '@/lib/db';
 
 // GET /api/resume — Fetch resume analyses for a user
 export async function GET() {
@@ -19,6 +19,12 @@ export async function GET() {
 
         return NextResponse.json({ analyses });
     } catch (error) {
+        if (isDatabaseUnreachable(error)) {
+            return NextResponse.json(
+                { error: "We can't reach the server right now. Please try again in a moment." },
+                { status: 503 }
+            );
+        }
         console.error('GET /api/resume error:', error);
         return NextResponse.json({ error: 'Failed to fetch resume analyses' }, { status: 500 });
     }
@@ -49,6 +55,12 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json(analysis, { status: 201 });
     } catch (error) {
+        if (isDatabaseUnreachable(error)) {
+            return NextResponse.json(
+                { error: "We can't reach the server right now. Please try again in a moment." },
+                { status: 503 }
+            );
+        }
         console.error('POST /api/resume error:', error);
         return NextResponse.json({ error: 'Failed to create resume analysis' }, { status: 500 });
     }
