@@ -13,7 +13,6 @@ import {
   ArrowRight,
   Star,
   Sparkles,
-  ChevronRight,
   Play,
   Users,
   Award,
@@ -388,9 +387,6 @@ export default function LandingPage() {
               </div>
               <h3 className={styles.featureTitle}>{feature.title}</h3>
               <p className={styles.featureDesc}>{feature.description}</p>
-              <span className={styles.featureLink}>
-                Learn more <ChevronRight size={14} />
-              </span>
             </motion.div>
           ))}
         </motion.div>
