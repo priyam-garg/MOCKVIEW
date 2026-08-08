@@ -82,7 +82,7 @@ export async function POST(req: Request) {
 
         // Call the Google Gemini model via Vercel AI SDK
         const result = streamText({
-            model: google('gemini-2.5-flash'),
+            model: google('gemini-3.6-flash'),
             system: generateSystemPrompt(
                 topic,
                 session.user.name || 'Candidate',

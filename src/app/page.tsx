@@ -187,6 +187,14 @@ const item = {
   show: { opacity: 1, y: 0 },
 };
 
+// Deterministic stand-in for Math.random(), seeded by index. The waveform
+// bars just need varied-looking heights, not real randomness, and a pure
+// function of `i` renders identically on the server and the client.
+function seededRandom(seed: number) {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 export default function LandingPage() {
   return (
     <div className={styles.landing}>
@@ -275,7 +283,10 @@ export default function LandingPage() {
                     className={styles.waveBar}
                     style={{
                       animationDelay: `${i * 0.05}s`,
-                      height: `${Math.random() * 60 + 20}%`,
+                      // Deterministic pseudo-random height, seeded by index, so
+                      // server and client render the same value (Math.random()
+                      // here would differ between the two and break hydration).
+                      height: `${seededRandom(i) * 60 + 20}%`,
                     }}
                   />
                 ))}

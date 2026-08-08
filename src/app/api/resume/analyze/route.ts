@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
 
         // ── Call Gemini for ATS analysis ──
         const { text: aiResponse } = await generateText({
-            model: google('gemini-2.5-flash'),
+            model: google('gemini-3.6-flash'),
             prompt: buildPrompt(resumeText.slice(0, 15000), targetRole), // Cap at 15k chars
         });
 
