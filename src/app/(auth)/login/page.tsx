@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { AUTH_ERRORS } from '@/lib/auth-errors';
+import DemoLoginButton from '@/components/ui/DemoLoginButton';
 import Link from 'next/link';
 import {
     Sparkles,
@@ -36,7 +38,13 @@ export default function LoginPage() {
             });
 
             if (res?.error) {
-                setError('Invalid email or password');
+                // A service outage previously showed "Invalid email or password",
+                // which sent people off resetting a password that was fine.
+                setError(
+                    res.error.includes(AUTH_ERRORS.SERVICE_UNAVAILABLE)
+                        ? "We can't reach the server right now. Please try again in a moment."
+                        : 'Invalid email or password'
+                );
             } else {
                 router.push('/dashboard');
                 router.refresh();
@@ -129,6 +137,12 @@ export default function LoginPage() {
                         )}
                     </button>
                 </form>
+
+                {/* Lets reviewers explore a populated account without registering */}
+                <div className={styles.demoDivider}>
+                    <span>or</span>
+                </div>
+                <DemoLoginButton label="Try the demo account" />
 
                 <p className={styles.footer}>
                     Don&apos;t have an account?{' '}
