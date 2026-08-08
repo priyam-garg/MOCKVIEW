@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
     Mic,
     Calendar,
@@ -70,15 +70,41 @@ function getBadgeVariant(score: number): 'emerald' | 'amber' | 'rose' {
     return 'rose';
 }
 
+// Score-range options for the "More Filters" popover, applied client-side
+// over the already-fetched list (the API only filters by `type`).
+const SCORE_FILTERS = [
+    { id: 'any', label: 'Any score', test: () => true },
+    { id: '80+', label: '80+', test: (score: number) => score >= 80 },
+    { id: '60+', label: '60+', test: (score: number) => score >= 60 },
+    { id: 'below60', label: 'Below 60', test: (score: number) => score < 60 },
+];
+
 export default function HistoryPage() {
     const [filter, setFilter] = useState('all');
     const [interviews, setInterviews] = useState<Interview[]>([]);
     const [loading, setLoading] = useState(true);
+    const [scoreFilter, setScoreFilter] = useState('any');
+    const [showScoreDropdown, setShowScoreDropdown] = useState(false);
+    const scoreDropdownRef = useRef<HTMLDivElement>(null);
 
     // Real analytics from API
     const [radarSkills, setRadarSkills] = useState<RadarSkill[]>([]);
     const [heatmapData, setHeatmapData] = useState<HeatmapCategory[]>([]);
     const [scoreTrend, setScoreTrend] = useState<ScoreTrendPoint[]>([]);
+
+    // ── Close score filter dropdown on outside click ──
+    useEffect(() => {
+        function handleClickOutside(e: MouseEvent) {
+            if (scoreDropdownRef.current && !scoreDropdownRef.current.contains(e.target as Node)) {
+                setShowScoreDropdown(false);
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const activeScoreFilter = SCORE_FILTERS.find((f) => f.id === scoreFilter) || SCORE_FILTERS[0];
+    const visibleInterviews = interviews.filter((i) => activeScoreFilter.test(i.score));
 
     // ── Fetch interviews + analytics from API ──
     useEffect(() => {
@@ -160,9 +186,37 @@ export default function HistoryPage() {
                                 </button>
                             ))}
                         </div>
-                        <Button size="sm" variant="ghost" icon={<Filter size={14} />}>
-                            More Filters
-                        </Button>
+                        <div className={styles.scoreFilterWrap} ref={scoreDropdownRef}>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                icon={<Filter size={14} />}
+                                onClick={() => setShowScoreDropdown((v) => !v)}
+                            >
+                                {scoreFilter === 'any' ? 'More Filters' : `Score: ${activeScoreFilter.label}`}
+                            </Button>
+                            <AnimatePresence>
+                                {showScoreDropdown && (
+                                    <motion.div
+                                        className={styles.scoreFilterDropdown}
+                                        initial={{ opacity: 0, y: -8 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -8 }}
+                                        transition={{ duration: 0.15 }}
+                                    >
+                                        {SCORE_FILTERS.map((f) => (
+                                            <button
+                                                key={f.id}
+                                                className={`${styles.scoreFilterOption} ${scoreFilter === f.id ? styles.scoreFilterOptionActive : ''}`}
+                                                onClick={() => { setScoreFilter(f.id); setShowScoreDropdown(false); }}
+                                            >
+                                                {f.label}
+                                            </button>
+                                        ))}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
                     </div>
 
                     {/* Interview Cards */}
@@ -172,10 +226,12 @@ export default function HistoryPage() {
                                 <div key={i} className={styles.skeleton} />
                             ))}
                         </div>
-                    ) : interviews.length === 0 ? (
+                    ) : visibleInterviews.length === 0 ? (
                         <Card>
                             <p style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                                No interviews found. Start practicing!
+                                {interviews.length === 0
+                                    ? 'No interviews found. Start practicing!'
+                                    : 'No interviews match this filter.'}
                             </p>
                         </Card>
                     ) : (
@@ -185,7 +241,7 @@ export default function HistoryPage() {
                             initial="hidden"
                             animate="show"
                         >
-                            {interviews.map((interview) => (
+                            {visibleInterviews.map((interview) => (
                                 <motion.div key={interview.id} variants={item}>
                                     <Card
                                         className={styles.interviewCard}

@@ -50,6 +50,45 @@
     color: var(--text-primary);
 }
 
+/* Score filter popover */
+.scoreFilterWrap {
+    position: relative;
+}
+
+.scoreFilterDropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 160px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    z-index: 50;
+    box-shadow: var(--shadow-lg);
+}
+
+.scoreFilterOption {
+    display: block;
+    width: 100%;
+    padding: 10px 14px;
+    font-size: var(--text-sm);
+    text-align: left;
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+}
+
+.scoreFilterOption:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.scoreFilterOptionActive {
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--accent-blue);
+}
+
 .filterActive {
     background: var(--bg-tertiary);
     color: var(--text-primary);
