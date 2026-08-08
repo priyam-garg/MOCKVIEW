@@ -8,7 +8,7 @@ import {
     CheckCircle2,
     AlertTriangle,
     XCircle,
-    ArrowRight,
+    Download,
     Lightbulb,
     TrendingUp,
     Search,
@@ -29,6 +29,14 @@ import Badge from '@/components/ui/Badge';
 import ProgressRing from '@/components/ui/ProgressRing';
 import { getScoreColor, getScoreLabel } from '@/lib/utils';
 import styles from './resume.module.css';
+
+// jsPDF is browser-only (touches document/canvas internals) — load it lazily
+// inside the click handler instead of at module scope so it never runs
+// during SSR/build.
+async function loadJsPDF() {
+    const { default: jsPDF } = await import('jspdf');
+    return jsPDF;
+}
 
 // ── Types ──
 interface ResumeAnalysis {
@@ -78,6 +86,15 @@ const sectionIconMap: Record<string, React.ElementType> = {
     'Keywords': Search,
 };
 
+// ── Score tier badge — mirrors getScoreColor's boundaries (src/lib/utils.ts)
+// rather than a hardcoded 80/not-80 split, so the badge tier and the score
+// ring color always agree. ──
+function getScoreBadgeVariant(score: number): 'emerald' | 'amber' | 'rose' {
+    if (score >= 80) return 'emerald';
+    if (score >= 60) return 'amber';
+    return 'rose';
+}
+
 // ── Severity config ──
 const severityConfig: Record<string, { icon: React.ElementType; color: string }> = {
     critical: { icon: XCircle, color: 'var(--accent-rose)' },
@@ -87,6 +104,10 @@ const severityConfig: Record<string, { icon: React.ElementType; color: string }>
 
 export default function ResumePage() {
     const [analysis, setAnalysis] = useState<ResumeAnalysis | null>(null);
+    // All past analyses (not just the most recent), so the results screen
+    // can offer a way to browse/switch between them instead of only ever
+    // showing analyses[0].
+    const [pastAnalyses, setPastAnalyses] = useState<ResumeAnalysis[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Upload state
@@ -102,13 +123,14 @@ export default function ResumePage() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    // ── Fetch existing analysis on mount ──
+    // ── Fetch existing analyses on mount ──
     useEffect(() => {
         fetch('/api/resume')
             .then((res) => res.json())
             .then((data) => {
                 if (data.analyses && data.analyses.length > 0) {
                     setAnalysis(data.analyses[0]);
+                    setPastAnalyses(data.analyses);
                 }
                 setLoading(false);
             })
@@ -203,9 +225,13 @@ export default function ResumePage() {
             }
 
             setAnalysis(data);
-            setSelectedFile(null);
+            setPastAnalyses((prev) => [data, ...prev]);
+            // Keep selectedFile around (not cleared here) so "Try Different
+            // Role" on the results screen can re-analyze it without a re-upload.
             setTargetRole('');
             setCustomRole('');
+            setOptimizeSuggestions(null);
+            setOptimizeError('');
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
             setError(message);
@@ -215,13 +241,140 @@ export default function ResumePage() {
         }
     };
 
-    // ── New Analysis ──
+    // ── New Analysis ── (starts over completely, including the uploaded file)
     const handleNewAnalysis = () => {
         setAnalysis(null);
         setSelectedFile(null);
         setTargetRole('');
         setCustomRole('');
         setError('');
+        setOptimizeSuggestions(null);
+        setOptimizeError('');
+    };
+
+    // ── Try Different Role ── (keeps the already-uploaded file, just
+    // re-opens the role picker instead of making the user re-upload)
+    const handleTryDifferentRole = () => {
+        setAnalysis(null);
+        setTargetRole('');
+        setCustomRole('');
+        setError('');
+        setOptimizeSuggestions(null);
+        setOptimizeError('');
+    };
+
+    // ── Download Report ── (builds a PDF client-side from the current
+    // analysis — no server round-trip needed)
+    const [downloadingReport, setDownloadingReport] = useState(false);
+    const handleDownloadReport = async () => {
+        if (!analysis) return;
+        setDownloadingReport(true);
+        try {
+            const jsPDF = await loadJsPDF();
+            const doc = new jsPDF();
+            const marginX = 14;
+            let y = 18;
+
+            doc.setFontSize(18);
+            doc.text('Resume Analysis Report', marginX, y);
+            y += 8;
+            doc.setFontSize(10);
+            doc.setTextColor(100);
+            doc.text(`${analysis.fileName} • ${new Date(analysis.createdAt).toLocaleDateString()}`, marginX, y);
+            y += 10;
+
+            doc.setTextColor(0);
+            doc.setFontSize(14);
+            doc.text(`ATS Score: ${analysis.atsScore}/100 (${getScoreLabel(analysis.atsScore)})`, marginX, y);
+            y += 6;
+            doc.setFontSize(11);
+            doc.text(`Target Role: ${analysis.targetRole || 'General'}`, marginX, y);
+            y += 10;
+
+            doc.setFontSize(13);
+            doc.text('Section Breakdown', marginX, y);
+            y += 7;
+            doc.setFontSize(10);
+            analysis.sectionScores.forEach((s) => {
+                doc.text(`${s.label}: ${s.score}%`, marginX + 2, y);
+                y += 5.5;
+            });
+            y += 5;
+
+            doc.setFontSize(13);
+            doc.text('Keywords', marginX, y);
+            y += 7;
+            doc.setFontSize(10);
+            const found = analysis.keywordData.filter((k) => k.found).map((k) => k.keyword);
+            const missing = analysis.keywordData.filter((k) => !k.found).map((k) => k.keyword);
+            const foundLines = doc.splitTextToSize(`Found: ${found.join(', ') || 'None'}`, 180);
+            doc.text(foundLines, marginX + 2, y);
+            y += foundLines.length * 5.5 + 2;
+            const missingLines = doc.splitTextToSize(`Missing: ${missing.join(', ') || 'None'}`, 180);
+            doc.text(missingLines, marginX + 2, y);
+            y += missingLines.length * 5.5 + 8;
+
+            doc.setFontSize(13);
+            doc.text('Improvement Suggestions', marginX, y);
+            y += 7;
+            doc.setFontSize(10);
+            analysis.improvements.forEach((imp) => {
+                if (y > 275) { doc.addPage(); y = 18; }
+                doc.setFont('helvetica', 'bold');
+                const titleLines = doc.splitTextToSize(`[${imp.severity.toUpperCase()}] ${imp.title}`, 180);
+                doc.text(titleLines, marginX + 2, y);
+                y += titleLines.length * 5.5;
+                doc.setFont('helvetica', 'normal');
+                const descLines = doc.splitTextToSize(imp.description, 178);
+                doc.text(descLines, marginX + 4, y);
+                y += descLines.length * 5.5 + 4;
+            });
+
+            const safeFileName = analysis.fileName.replace(/\.pdf$/i, '').replace(/[^a-z0-9-_]+/gi, '_');
+            doc.save(`${safeFileName || 'resume'}-analysis-report.pdf`);
+        } catch (err) {
+            console.error('Failed to generate report PDF:', err);
+        } finally {
+            setDownloadingReport(false);
+        }
+    };
+
+    // ── AI Auto-Optimize ──
+    const [optimizing, setOptimizing] = useState(false);
+    const [optimizeError, setOptimizeError] = useState('');
+    const [optimizeSuggestions, setOptimizeSuggestions] = useState<
+        { section: string; issue: string; original: string | null; rewritten: string }[] | null
+    >(null);
+    const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+    const handleOptimize = async () => {
+        if (!analysis) return;
+        setOptimizing(true);
+        setOptimizeError('');
+        try {
+            const res = await fetch('/api/resume/optimize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ analysisId: analysis.id }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Optimization failed');
+            }
+            setOptimizeSuggestions(data.suggestions);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+            setOptimizeError(message);
+        } finally {
+            setOptimizing(false);
+        }
+    };
+
+    const handleCopySuggestion = (text: string, i: number) => {
+        navigator.clipboard.writeText(text).then(() => {
+            setCopiedIndex(i);
+            setTimeout(() => setCopiedIndex((prev) => (prev === i ? null : prev)), 1500);
+        });
     };
 
     const formatFileSize = (bytes: number) => {
@@ -470,6 +623,26 @@ export default function ResumePage() {
         <div className={styles.page}>
             <Header title="Resume Analysis" subtitle="AI-powered resume intelligence report" />
 
+            {/* Past Analyses — browse without re-uploading */}
+            {pastAnalyses.length > 1 && (
+                <div className={styles.pastAnalysesStrip}>
+                    {pastAnalyses.map((a) => (
+                        <button
+                            key={a.id}
+                            className={`${styles.pastAnalysisChip} ${a.id === analysis.id ? styles.pastAnalysisChipActive : ''}`}
+                            onClick={() => setAnalysis(a)}
+                        >
+                            <span className={styles.pastAnalysisScore} style={{ color: getScoreColor(a.atsScore) }}>
+                                {a.atsScore}
+                            </span>
+                            <span className={styles.pastAnalysisMeta}>
+                                {a.targetRole || 'General'} · {new Date(a.createdAt).toLocaleDateString()}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+
             {/* Top Score Section */}
             <motion.div
                 className={styles.topSection}
@@ -491,7 +664,7 @@ export default function ResumePage() {
                         </div>
                         <div className={styles.scoreRight}>
                             <div className={styles.scoreBadges}>
-                                <Badge variant={atsScore >= 80 ? 'emerald' : 'amber'} size="md">
+                                <Badge variant={getScoreBadgeVariant(atsScore)} size="md">
                                     {getScoreLabel(atsScore)}
                                 </Badge>
                                 {analysis.targetRole && (
@@ -509,7 +682,13 @@ export default function ResumePage() {
                                 <Button size="sm" variant="secondary" icon={<RefreshCw size={14} />} onClick={handleNewAnalysis}>
                                     New Analysis
                                 </Button>
-                                <Button size="sm" variant="secondary" icon={<ArrowRight size={14} />}>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    icon={<Download size={14} />}
+                                    onClick={handleDownloadReport}
+                                    loading={downloadingReport}
+                                >
                                     Download Report
                                 </Button>
                             </div>
@@ -665,15 +844,59 @@ export default function ResumePage() {
                                 <Button fullWidth variant="secondary" icon={<RefreshCw size={16} />} onClick={handleNewAnalysis}>
                                     Analyze Another Resume
                                 </Button>
-                                <Button fullWidth variant="secondary" icon={<Target size={16} />} onClick={handleNewAnalysis}>
+                                <Button fullWidth variant="secondary" icon={<Target size={16} />} onClick={handleTryDifferentRole}>
                                     Try Different Role
                                 </Button>
-                                <Button fullWidth icon={<Sparkles size={16} />}>
-                                    AI Auto-Optimize
+                                <Button
+                                    fullWidth
+                                    icon={<Sparkles size={16} />}
+                                    onClick={handleOptimize}
+                                    loading={optimizing}
+                                >
+                                    {optimizeSuggestions ? 'Re-run Optimization' : 'AI Auto-Optimize'}
                                 </Button>
+                                {optimizeError && (
+                                    <p className={styles.errorMsg}>
+                                        <XCircle size={14} /> {optimizeError}
+                                    </p>
+                                )}
                             </div>
                         </Card>
                     </motion.div>
+
+                    {/* AI Auto-Optimize results */}
+                    {optimizeSuggestions && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 15 }}
+                            animate={{ opacity: 1, y: 0 }}
+                        >
+                            <Card>
+                                <h3 className={styles.cardTitle}>
+                                    <Sparkles size={16} /> Optimization Suggestions
+                                </h3>
+                                <div className={styles.improvementList}>
+                                    {optimizeSuggestions.map((s, i) => (
+                                        <div key={i} className={styles.optimizeItem}>
+                                            <div className={styles.optimizeHeader}>
+                                                <span className={styles.impTitle}>{s.section}</span>
+                                                <button
+                                                    className={styles.copyBtn}
+                                                    onClick={() => handleCopySuggestion(s.rewritten, i)}
+                                                >
+                                                    {copiedIndex === i ? 'Copied!' : 'Copy'}
+                                                </button>
+                                            </div>
+                                            <p className={styles.impDesc}>{s.issue}</p>
+                                            {s.original && (
+                                                <p className={styles.optimizeOriginal}>{s.original}</p>
+                                            )}
+                                            <p className={styles.optimizeRewritten}>{s.rewritten}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        </motion.div>
+                    )}
                 </div>
             </div>
         </div>

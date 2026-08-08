@@ -370,6 +370,48 @@
     margin-bottom: var(--space-xl);
 }
 
+/* ─── Past Analyses strip ─── */
+.pastAnalysesStrip {
+    display: flex;
+    gap: var(--space-sm);
+    overflow-x: auto;
+    padding-bottom: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.pastAnalysisChip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.pastAnalysisChip:hover {
+    border-color: var(--border-medium);
+}
+
+.pastAnalysisChipActive {
+    border-color: var(--accent-blue);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.pastAnalysisScore {
+    font-size: var(--text-sm);
+    font-weight: 800;
+}
+
+.pastAnalysisMeta {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
 .mainScoreCard {
     background: var(--gradient-card) !important;
 }
@@ -592,6 +634,52 @@
 .impDesc {
     font-size: var(--text-xs);
     color: var(--text-tertiary);
+    line-height: 1.5;
+}
+
+/* ─── AI Auto-Optimize results ─── */
+.optimizeItem {
+    padding: var(--space-md) 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.optimizeItem:last-child {
+    border-bottom: none;
+}
+
+.optimizeHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.copyBtn {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--accent-blue);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-fast);
+    cursor: pointer;
+}
+
+.copyBtn:hover {
+    background: var(--bg-tertiary);
+}
+
+.optimizeOriginal {
+    font-size: var(--text-xs);
+    color: var(--accent-rose);
+    text-decoration: line-through;
+    opacity: 0.75;
+    margin-top: 6px;
+}
+
+.optimizeRewritten {
+    font-size: var(--text-sm);
+    color: var(--accent-emerald);
+    margin-top: 4px;
     line-height: 1.5;
 }
 
