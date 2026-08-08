@@ -326,6 +326,25 @@
     margin-bottom: var(--space-md);
 }
 
+.deleteConfirm {
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    background: rgba(244, 63, 94, 0.06);
+    border: 1px solid rgba(244, 63, 94, 0.2);
+}
+
+.deleteWarning {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-md);
+}
+
+.deleteError {
+    font-size: var(--text-sm);
+    color: var(--accent-rose);
+    margin-bottom: var(--space-sm);
+}
+
 /* Loading Skeleton */
 .skeleton {
     border-radius: var(--radius-lg);

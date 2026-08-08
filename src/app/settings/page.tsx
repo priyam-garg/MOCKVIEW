@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { signOut } from 'next-auth/react';
 import { motion } from 'framer-motion';
 import {
     User,
@@ -17,7 +18,6 @@ import {
     Globe,
     Moon,
     Sun,
-    Monitor,
     Mic,
     Clock,
     Check,
@@ -26,6 +26,7 @@ import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
+import { useTheme } from '@/components/providers/ThemeProvider';
 import styles from './settings.module.css';
 
 // ── Types ──
@@ -42,6 +43,8 @@ interface UserProfile {
     notifyEmail: boolean;
     notifyInterviewTip: boolean;
     notifyWeeklyReport: boolean;
+    profileVisible: boolean;
+    dataCollection: boolean;
 }
 
 const settingsSections = [
@@ -70,7 +73,9 @@ export default function SettingsPage() {
         bio: '',
     });
 
-    const [theme, setTheme] = useState('dark');
+    // Theme is owned by ThemeProvider (localStorage-backed, applied live to
+    // <html data-theme>), not local state — Settings just reflects/changes it.
+    const { theme, setTheme } = useTheme();
     const [notifications, setNotifications] = useState({
         email: true,
         push: true,
@@ -83,6 +88,12 @@ export default function SettingsPage() {
         coach: true,
         autoRecord: true,
     });
+    const [privacy, setPrivacy] = useState({
+        profileVisible: true,
+        dataCollection: true,
+    });
+    const [deleteStep, setDeleteStep] = useState<'idle' | 'confirming' | 'deleting'>('idle');
+    const [deleteError, setDeleteError] = useState('');
 
     // ── Fetch user profile on mount ──
     useEffect(() => {
@@ -97,12 +108,18 @@ export default function SettingsPage() {
                     location: data.location || '',
                     bio: data.bio || '',
                 });
-                setTheme(data.theme || 'dark');
+                // Note: theme itself comes from ThemeProvider/localStorage, not
+                // this fetch — `data.theme` is only kept in sync for record-
+                // keeping when Settings saves, not used to drive the live theme.
                 setNotifications({
                     email: data.notifyEmail ?? true,
                     push: true,
                     weekly: data.notifyWeeklyReport ?? true,
                     achievements: data.notifyInterviewTip ?? true,
+                });
+                setPrivacy({
+                    profileVisible: data.profileVisible ?? true,
+                    dataCollection: data.dataCollection ?? true,
                 });
                 setLoading(false);
             })
@@ -129,6 +146,8 @@ export default function SettingsPage() {
                     notifyEmail: notifications.email,
                     notifyWeeklyReport: notifications.weekly,
                     notifyInterviewTip: notifications.achievements,
+                    profileVisible: privacy.profileVisible,
+                    dataCollection: privacy.dataCollection,
                 }),
             });
             const updated = await res.json();
@@ -140,6 +159,36 @@ export default function SettingsPage() {
         } finally {
             setSaving(false);
         }
+    };
+
+    // ── Permanently delete the account (cascades to all owned data) ──
+    const handleDeleteAccount = async () => {
+        setDeleteStep('deleting');
+        setDeleteError('');
+        try {
+            const res = await fetch('/api/user', { method: 'DELETE' });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to delete account');
+            }
+            await signOut({ callbackUrl: '/' });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to delete account';
+            setDeleteError(message);
+            setDeleteStep('confirming');
+        }
+    };
+
+    // ── Discard unsaved profile edits, revert to last-fetched values ──
+    const handleCancelProfile = () => {
+        if (!profile) return;
+        setFormData({
+            name: profile.name || '',
+            email: profile.email || '',
+            company: profile.company || '',
+            location: profile.location || '',
+            bio: profile.bio || '',
+        });
     };
 
     // ── Get initials for avatar ──
@@ -201,7 +250,13 @@ export default function SettingsPage() {
                                     <div className={styles.avatarInfo}>
                                         <p className={styles.avatarName}>{formData.name || 'Your Name'}</p>
                                         <p className={styles.avatarEmail}>{formData.email || 'your@email.com'}</p>
-                                        <Button size="sm" variant="ghost" icon={<Camera size={14} />}>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            icon={<Camera size={14} />}
+                                            disabled
+                                            title="Avatar uploads aren't available yet"
+                                        >
                                             Change Avatar
                                         </Button>
                                     </div>
@@ -274,7 +329,7 @@ export default function SettingsPage() {
                                             'Save Changes'
                                         )}
                                     </Button>
-                                    <Button variant="ghost">Cancel</Button>
+                                    <Button variant="ghost" onClick={handleCancelProfile}>Cancel</Button>
                                 </div>
                             </Card>
                         </motion.div>
@@ -420,9 +475,8 @@ export default function SettingsPage() {
                                 <h3 className={styles.sectionTitle}>Appearance</h3>
                                 <div className={styles.themeGrid}>
                                     {[
-                                        { id: 'dark', label: 'Dark', icon: Moon },
-                                        { id: 'light', label: 'Light', icon: Sun },
-                                        { id: 'system', label: 'System', icon: Monitor },
+                                        { id: 'dark' as const, label: 'Dark', icon: Moon },
+                                        { id: 'light' as const, label: 'Light', icon: Sun },
                                     ].map((t) => (
                                         <button
                                             key={t.id}
@@ -459,7 +513,12 @@ export default function SettingsPage() {
                                             <p className={styles.toggleLabel}>Profile Visibility</p>
                                             <p className={styles.toggleDesc}>Allow others to see your profile and stats</p>
                                         </div>
-                                        <button className={`${styles.toggle} ${styles.toggleOn}`}>
+                                        <button
+                                            className={`${styles.toggle} ${privacy.profileVisible ? styles.toggleOn : ''}`}
+                                            onClick={() =>
+                                                setPrivacy((prev) => ({ ...prev, profileVisible: !prev.profileVisible }))
+                                            }
+                                        >
                                             <span className={styles.toggleKnob} />
                                         </button>
                                     </div>
@@ -468,14 +527,54 @@ export default function SettingsPage() {
                                             <p className={styles.toggleLabel}>Data Collection</p>
                                             <p className={styles.toggleDesc}>Help improve MockView AI with anonymized usage data</p>
                                         </div>
-                                        <button className={`${styles.toggle} ${styles.toggleOn}`}>
+                                        <button
+                                            className={`${styles.toggle} ${privacy.dataCollection ? styles.toggleOn : ''}`}
+                                            onClick={() =>
+                                                setPrivacy((prev) => ({ ...prev, dataCollection: !prev.dataCollection }))
+                                            }
+                                        >
                                             <span className={styles.toggleKnob} />
                                         </button>
                                     </div>
                                 </div>
+                                <div className={styles.actions} style={{ marginTop: 'var(--space-lg)' }}>
+                                    <Button onClick={handleSave} loading={saving}>
+                                        {saved ? <><Check size={14} /> Saved!</> : 'Save Changes'}
+                                    </Button>
+                                </div>
                                 <div className={styles.dangerZone}>
                                     <h4 className={styles.dangerTitle}>Danger Zone</h4>
-                                    <Button variant="danger" size="sm">Delete Account</Button>
+                                    {deleteStep === 'idle' ? (
+                                        <Button variant="danger" size="sm" onClick={() => setDeleteStep('confirming')}>
+                                            Delete Account
+                                        </Button>
+                                    ) : (
+                                        <div className={styles.deleteConfirm}>
+                                            <p className={styles.deleteWarning}>
+                                                This permanently deletes your account and everything tied to it —
+                                                interviews, resume analyses, goals, and streak history. This cannot be undone.
+                                            </p>
+                                            {deleteError && <p className={styles.deleteError}>{deleteError}</p>}
+                                            <div className={styles.actions}>
+                                                <Button
+                                                    variant="danger"
+                                                    size="sm"
+                                                    onClick={handleDeleteAccount}
+                                                    loading={deleteStep === 'deleting'}
+                                                >
+                                                    Yes, delete my account
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => { setDeleteStep('idle'); setDeleteError(''); }}
+                                                    disabled={deleteStep === 'deleting'}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </Card>
                         </motion.div>

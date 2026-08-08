@@ -35,6 +35,10 @@ model User {
   notifyInterviewTip Boolean @default(true)
   notifyWeeklyReport Boolean @default(true)
 
+  // Privacy
+  profileVisible Boolean @default(true)
+  dataCollection Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

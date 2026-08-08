@@ -27,6 +27,8 @@ export async function GET() {
                 notifyEmail: true,
                 notifyInterviewTip: true,
                 notifyWeeklyReport: true,
+                profileVisible: true,
+                dataCollection: true,
                 createdAt: true,
             },
         });
@@ -65,6 +67,8 @@ export async function PATCH(req: NextRequest) {
             'notifyEmail',
             'notifyInterviewTip',
             'notifyWeeklyReport',
+            'profileVisible',
+            'dataCollection',
         ];
 
         const data: Record<string, unknown> = {};
@@ -90,6 +94,8 @@ export async function PATCH(req: NextRequest) {
                 notifyEmail: true,
                 notifyInterviewTip: true,
                 notifyWeeklyReport: true,
+                profileVisible: true,
+                dataCollection: true,
                 updatedAt: true,
             },
         });
@@ -98,5 +104,26 @@ export async function PATCH(req: NextRequest) {
     } catch (error) {
         console.error('PATCH /api/user error:', error);
         return NextResponse.json({ error: 'Failed to update user' }, { status: 500 });
+    }
+}
+
+// DELETE /api/user — Permanently delete the current user's account.
+// Every child model (Interview, ResumeAnalysis, Goal, Streak, Account,
+// Session) has onDelete: Cascade in the schema, so deleting the User row
+// is sufficient to remove everything belonging to them.
+export async function DELETE() {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user || !(session.user as { id?: string }).id) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        const userId = (session.user as { id: string }).id;
+
+        await db.user.delete({ where: { id: userId } });
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('DELETE /api/user error:', error);
+        return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 });
     }
 }
